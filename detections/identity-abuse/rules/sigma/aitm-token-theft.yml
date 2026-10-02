@@ -1,0 +1,43 @@
+title: AiTM Token Theft - Session Token Replay from Different IP
+id: a1b2c3d4-0001-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects potential Adversary-in-the-Middle (AiTM) token theft by identifying
+  session tokens used from multiple IP addresses or ASNs within a short time
+  window, indicating token replay after phishing-based interception.
+references:
+  - https://attack.mitre.org/techniques/T1557/
+  - https://attack.mitre.org/techniques/T1539/
+author: mikeytrr07
+tags:
+  - attack.credential_access
+  - attack.t1557
+  - attack.t1539
+logsource:
+  product: azure
+  service: signinlogs
+detection:
+  selection:
+    Status.errorCode: 0
+  filter_known_vpn:
+    IPAddress|cidr:
+      - '10.0.0.0/8'
+      - '172.16.0.0/12'
+      - '192.168.0.0/16'
+  condition: selection and not filter_known_vpn
+  # Post-processing note: Group by SessionId and UserPrincipalName,
+  # then flag sessions where token is used from >1 distinct IP or ASN
+  # within a 60-minute window. This requires SIEM-level correlation.
+fields:
+  - UserPrincipalName
+  - IPAddress
+  - Location
+  - UserAgent
+  - DeviceDetail.isCompliant
+  - SessionId
+  - AutonomousSystemNumber
+falsepositives:
+  - Users switching between WiFi and cellular networks
+  - VPN reconnections causing IP changes
+  - Legitimate proxy/load-balancer rotations
+level: high

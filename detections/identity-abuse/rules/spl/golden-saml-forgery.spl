@@ -1,0 +1,41 @@
+`comment("Golden SAML / Federated Identity Forgery")`
+`comment("Detects SAML tokens without corresponding authentication events at the IdP")`
+`comment("MITRE ATT&CK: T1606.002")`
+`comment("Severity: Critical | Data Source: AD FS Logs, Azure AD Sign-In Logs")`
+
+`comment("--- Query 1: SAML token used in cloud with no matching AD FS auth event ---")`
+
+index=azure_ad sourcetype="azure:aad:signin" 
+  "AuthenticationDetails{}.authenticationMethod"="Federated" 
+  ResultType=0
+| rename UserPrincipalName as upn, IPAddress as cloud_ip
+| join type=left upn 
+  [search index=windows sourcetype="WinEventLog:Security" EventCode=4769 OR EventCode=1200
+   | rename TargetUserName as upn
+   | stats latest(_time) as adfs_auth_time by upn]
+| eval time_diff=abs(_time - adfs_auth_time)
+| where isnull(adfs_auth_time) OR time_diff > 600
+| table _time, upn, cloud_ip, adfs_auth_time, time_diff, UserAgent, AppDisplayName
+| sort - _time
+
+`comment("--- Query 2: Detect access to AD FS token-signing certificate ---")`
+
+index=windows sourcetype="WinEventLog:Security" EventCode=4662 
+  ObjectType="*certificate*"
+| search AccessMask="0x2" OR AccessMask="0x10"
+| eval access_type=case(
+    AccessMask="0x2", "Read",
+    AccessMask="0x10", "Export"
+  )
+| stats count by SubjectUserName, ObjectName, access_type, _time
+| table _time, SubjectUserName, ObjectName, access_type, count
+
+`comment("--- Query 3: Anomalous SAML token characteristics ---")`
+
+index=azure_ad sourcetype="azure:aad:signin"
+  "AuthenticationDetails{}.authenticationMethod"="Federated"
+| eval token_lifetime_hrs=round(TokenLifetimeInMinutes/60, 1)
+| where token_lifetime_hrs > 24
+| stats count by UserPrincipalName, IPAddress, AppDisplayName, token_lifetime_hrs
+| where count > 0
+| sort - token_lifetime_hrs

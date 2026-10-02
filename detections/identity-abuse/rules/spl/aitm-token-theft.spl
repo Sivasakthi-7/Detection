@@ -1,0 +1,30 @@
+`comment("Adversary-in-the-Middle (AiTM) Token Theft")`
+`comment("Detects session token replay from a different IP/ASN than the original authentication")`
+`comment("MITRE ATT&CK: T1557, T1539")`
+`comment("Severity: High | Data Source: Azure AD / Entra ID Sign-In Logs")`
+
+index=azure_ad sourcetype="azure:aad:signin"
+| eval auth_time=_time
+| stats earliest(auth_time) as first_auth, 
+        values(IPAddress) as src_ips, 
+        values(autonomous_system_number) as src_asns, 
+        dc(IPAddress) as unique_ips, 
+        dc(autonomous_system_number) as unique_asns, 
+        values(UserAgent) as user_agents,
+        values(Location.city) as cities,
+        values(DeviceDetail.isCompliant) as device_compliance
+  by UserPrincipalName, CorrelationId, SessionId
+| where unique_ips > 1 OR unique_asns > 1
+| eval time_window_hrs=round((latest(_time) - first_auth)/3600, 2)
+| where time_window_hrs < 1
+| table UserPrincipalName, SessionId, src_ips, src_asns, cities, unique_ips, user_agents, device_compliance, time_window_hrs
+| sort - unique_ips
+
+`comment("--- Supplemental: Detect sign-ins from known hosting/VPS providers ---")`
+
+index=azure_ad sourcetype="azure:aad:signin" ResultType=0
+| lookup hosting_providers_lookup autonomous_system_number AS AutonomousSystemNumber OUTPUT is_hosting_provider
+| where is_hosting_provider="true"
+| stats count by UserPrincipalName, IPAddress, AutonomousSystemNumber, Location.city, UserAgent
+| where count > 0
+| sort - count

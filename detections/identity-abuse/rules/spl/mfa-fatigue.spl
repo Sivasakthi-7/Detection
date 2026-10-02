@@ -1,0 +1,36 @@
+`comment("MFA Fatigue / Push Bombing")`
+`comment("Detects burst of MFA push denials followed by an approval")`
+`comment("MITRE ATT&CK: T1621")`
+`comment("Severity: High | Data Source: MFA Logs, Azure AD / Entra Sign-In Logs")`
+
+`comment("--- Query 1: MFA push bomb pattern - multiple denials then success ---")`
+
+index=azure_ad sourcetype="azure:aad:signin"
+| eval mfa_result=case(
+    match('AuthenticationDetails{}.authenticationStepResultDetail', "MFA denied"), "denied",
+    match('AuthenticationDetails{}.authenticationStepResultDetail', "MFA completed"), "approved",
+    1=1, "other"
+  )
+| where mfa_result IN ("denied", "approved")
+| sort 0 _time
+| streamstats time_window=600s count(eval(mfa_result="denied")) as deny_count, 
+              count(eval(mfa_result="approved")) as approve_count 
+  by UserPrincipalName
+| where deny_count >= 5 AND approve_count >= 1
+| stats min(_time) as first_deny, max(_time) as last_event, 
+        sum(eval(if(mfa_result="denied",1,0))) as total_denials,
+        sum(eval(if(mfa_result="approved",1,0))) as total_approvals,
+        values(IPAddress) as src_ips
+  by UserPrincipalName
+| eval attack_window_min=round((last_event - first_deny)/60, 1)
+| table UserPrincipalName, total_denials, total_approvals, attack_window_min, src_ips, first_deny, last_event
+| sort - total_denials
+
+`comment("--- Query 2: Standalone rapid MFA denial count ---")`
+
+index=azure_ad sourcetype="azure:aad:signin"
+  "AuthenticationDetails{}.authenticationStepResultDetail"="MFA denied*"
+| bin _time span=10m
+| stats count as mfa_denials by UserPrincipalName, _time, IPAddress
+| where mfa_denials >= 3
+| sort - mfa_denials

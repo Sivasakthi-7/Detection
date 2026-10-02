@@ -1,0 +1,36 @@
+title: MFA Fatigue - Push Bombing Followed by Approval
+id: a1b2c3d4-0004-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects MFA fatigue attacks (push bombing) by identifying a burst of denied
+  MFA push notifications for a single user within a short time window,
+  especially when followed by an eventual approval, indicating the user
+  was worn down into accepting.
+references:
+  - https://attack.mitre.org/techniques/T1621/
+  - https://www.uber.com/newsroom/security-update/
+author: mikeytrr07
+tags:
+  - attack.credential_access
+  - attack.t1621
+logsource:
+  product: azure
+  service: signinlogs
+detection:
+  selection_denied:
+    AuthenticationDetails.authenticationStepResultDetail|contains: 'MFA denied'
+  condition: selection_denied
+  # Post-processing: Aggregate per UserPrincipalName over a 10-minute
+  # sliding window. Alert when deny_count >= 5. Escalate to critical
+  # if followed by an MFA approval within the same window.
+fields:
+  - UserPrincipalName
+  - IPAddress
+  - AuthenticationDetails.authenticationStepResultDetail
+  - Location
+  - UserAgent
+  - DeviceDetail
+falsepositives:
+  - Users with misconfigured authenticator apps generating repeated prompts
+  - Device switchover causing re-authentication loops
+level: high

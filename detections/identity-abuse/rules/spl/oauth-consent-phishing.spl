@@ -1,0 +1,30 @@
+`comment("OAuth Consent Phishing via Malicious App Grants")`
+`comment("Detects users granting consent to suspicious OAuth applications")`
+`comment("MITRE ATT&CK: T1550.001")`
+`comment("Severity: High | Data Source: Azure AD / Entra Audit Logs")`
+
+index=azure_ad sourcetype="azure:aad:audit" OperationName="Consent to application"
+| spath output=target_app "TargetResources{}.displayName"
+| spath output=target_app_id "TargetResources{}.id"
+| spath output=permissions "ModifiedProperties{}.newValue"
+| eval is_verified=if(match(AdditionalDetails, "isVerifiedPublisher\":\s*\"true"), "Yes", "No")
+| where is_verified="No"
+| eval has_high_priv=if(match(permissions, "Mail\.Read|Mail\.Send|Files\.ReadWrite|Directory\.Read|User\.Read\.All|Sites\.ReadWrite"), "Yes", "No")
+| where has_high_priv="Yes"
+| stats count, 
+        values(permissions) as granted_permissions, 
+        values(target_app) as app_name 
+  by InitiatedBy.user.userPrincipalName, target_app_id, is_verified
+| rename "InitiatedBy.user.userPrincipalName" as consenting_user
+| sort - count
+| table consenting_user, app_name, target_app_id, granted_permissions, is_verified, count
+
+`comment("--- Supplemental: Detect new app registrations with high-privilege API scopes ---")`
+
+index=azure_ad sourcetype="azure:aad:audit" OperationName="Add application"
+| spath output=app_name "TargetResources{}.displayName"
+| spath output=registered_by "InitiatedBy.user.userPrincipalName"
+| spath output=app_permissions "ModifiedProperties{}.newValue"
+| eval has_risky_scopes=if(match(app_permissions, "Mail\.|Files\.|Directory\.|Sites\."), "Yes", "No")
+| where has_risky_scopes="Yes"
+| table _time, registered_by, app_name, app_permissions

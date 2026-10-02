@@ -1,0 +1,41 @@
+title: OAuth Consent Phishing - Suspicious App Permission Grant
+id: a1b2c3d4-0002-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects users granting consent to unverified OAuth applications requesting
+  high-privilege API permissions such as Mail.Read, Files.ReadWrite, or
+  Directory.Read.All, which may indicate OAuth consent phishing.
+references:
+  - https://attack.mitre.org/techniques/T1550/001/
+  - https://docs.microsoft.com/en-us/azure/active-directory/manage-apps/protect-against-consent-phishing
+author: mikeytrr07
+tags:
+  - attack.credential_access
+  - attack.t1550.001
+  - attack.persistence
+logsource:
+  product: azure
+  service: auditlogs
+detection:
+  selection_consent:
+    OperationName: 'Consent to application'
+  selection_high_priv:
+    ModifiedProperties.newValue|contains:
+      - 'Mail.Read'
+      - 'Mail.Send'
+      - 'Files.ReadWrite'
+      - 'Directory.Read.All'
+      - 'User.Read.All'
+      - 'Sites.ReadWrite.All'
+  filter_verified:
+    AdditionalDetails|contains: '"isVerifiedPublisher": "true"'
+  condition: selection_consent and selection_high_priv and not filter_verified
+fields:
+  - InitiatedBy.user.userPrincipalName
+  - TargetResources.displayName
+  - TargetResources.id
+  - ModifiedProperties.newValue
+falsepositives:
+  - Legitimate business applications requesting broad permissions during initial setup
+  - Admin-approved third-party integrations
+level: high

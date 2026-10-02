@@ -1,0 +1,42 @@
+title: Golden SAML - Federated Token Without IdP Authentication Event
+id: a1b2c3d4-0003-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects potential Golden SAML attacks by identifying federated sign-ins to
+  cloud services where no corresponding authentication event was recorded at
+  the on-premises identity provider (AD FS), or where SAML token characteristics
+  are anomalous (e.g., unusually long lifetime).
+references:
+  - https://attack.mitre.org/techniques/T1606/002/
+  - https://www.mandiant.com/resources/blog/detecting-microsoft-365-azure-active-directory-backdoors
+author: mikeytrr07
+tags:
+  - attack.credential_access
+  - attack.t1606.002
+  - attack.privilege_escalation
+logsource:
+  product: azure
+  service: signinlogs
+detection:
+  selection:
+    AuthenticationDetails.authenticationMethod: 'Federated'
+    Status.errorCode: 0
+  filter_known_idp:
+    # Adjust to your known AD FS server IPs
+    IPAddress|cidr:
+      - '10.0.0.0/8'
+  condition: selection
+  # Post-processing: Correlate with AD FS event logs (EventCode 1200, 4769)
+  # to verify a matching IdP authentication event exists within 10 minutes.
+  # Alert when no matching event is found.
+fields:
+  - UserPrincipalName
+  - IPAddress
+  - AppDisplayName
+  - AuthenticationDetails
+  - TokenIssuerType
+  - TokenIssuerName
+falsepositives:
+  - AD FS log collection gaps or delays
+  - Cached federation tokens during AD FS maintenance
+level: critical
