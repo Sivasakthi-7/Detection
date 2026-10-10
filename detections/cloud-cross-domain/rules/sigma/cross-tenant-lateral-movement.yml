@@ -1,0 +1,37 @@
+title: Cross-Tenant Lateral Movement - Unapproved External Tenant Access
+id: b2c3d4e5-0005-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects sign-ins from external tenant identities that are not on the approved
+  B2B partner list, indicating potential lateral movement from a compromised
+  partner tenant via cross-tenant trust relationships.
+references:
+  - https://attack.mitre.org/techniques/T1199/
+  - https://attack.mitre.org/techniques/T1078/004/
+author: mikeytrr07
+tags:
+  - attack.lateral_movement
+  - attack.t1199
+  - attack.t1078.004
+logsource:
+  product: azure
+  service: signinlogs
+detection:
+  selection:
+    Status.errorCode: 0
+  filter_internal:
+    HomeTenantId|expand: '%ResourceTenantId%'
+  condition: selection and not filter_internal
+  # Post-processing: Cross-reference HomeTenantId against an approved
+  # partner tenant allowlist. Alert on any access from unlisted tenants.
+fields:
+  - UserPrincipalName
+  - HomeTenantId
+  - ResourceTenantId
+  - AppDisplayName
+  - IPAddress
+  - Location
+falsepositives:
+  - New legitimate B2B partner tenants not yet added to the allowlist
+  - Merged or renamed tenant IDs after organizational changes
+level: medium

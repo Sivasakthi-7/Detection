@@ -1,0 +1,28 @@
+`comment("Shadow Admin via Conditional Access Policy Tampering")`
+`comment("Detects modification of Conditional Access exclusion lists")`
+`comment("MITRE ATT&CK: T1098.001, T1484.002")`
+`comment("Severity: Critical | Data Source: Azure AD Audit Logs")`
+
+`comment("--- Query 1: Conditional Access policy modification ---")`
+
+index=azure_ad sourcetype="azure:aad:audit" 
+  OperationName IN ("Update conditional access policy", "Delete conditional access policy")
+| spath output=policy_name "TargetResources{}.displayName"
+| spath output=modified_props "TargetResources{}.modifiedProperties{}"
+| spath output=actor "InitiatedBy.user.userPrincipalName"
+| eval exclusion_changed=if(match(modified_props, "excludeUsers|excludeGroups|excludeRoles|excludeLocations"), "Yes", "No")
+| where exclusion_changed="Yes" OR OperationName="Delete conditional access policy"
+| table _time, actor, OperationName, policy_name, exclusion_changed, modified_props
+| sort - _time
+
+`comment("--- Query 2: Privileged actions without MFA challenge ---")`
+
+index=azure_ad sourcetype="azure:aad:signin" ResultType=0
+| spath output=ca_status "ConditionalAccessPolicies{}.result"
+| spath output=app_name "AppDisplayName"
+| where match('AuthenticationRequirement', "singleFactorAuthentication") 
+  AND match(app_name, "Azure Portal|Microsoft 365 admin|Graph Explorer")
+| eval role_elevation=if(match('ResourceDisplayName', "Windows Azure Active Directory|Microsoft Graph"), "Yes", "No")
+| where role_elevation="Yes"
+| table _time, UserPrincipalName, app_name, IPAddress, ca_status, AuthenticationRequirement
+| sort - _time

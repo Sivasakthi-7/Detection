@@ -1,0 +1,29 @@
+`comment("Cloud Storage Bucket Exfiltration via Policy Manipulation")`
+`comment("Detects bucket policy changes granting external/public access")`
+`comment("MITRE ATT&CK: T1537, T1530")`
+`comment("Severity: Critical | Data Source: AWS CloudTrail, GCP Audit Logs")`
+
+`comment("--- Query 1: S3 bucket policy modified to grant external access ---")`
+
+index=aws sourcetype="aws:cloudtrail" 
+  eventName IN ("PutBucketPolicy", "PutBucketAcl", "PutBucketPublicAccessBlock", "DeleteBucketPolicy")
+| spath output=bucket_name "requestParameters.bucketName"
+| spath output=policy "requestParameters.bucketPolicy.Statement{}"
+| spath output=actor "userIdentity.arn"
+| eval grants_public=if(match(policy, "\"Principal\":\s*\"\*\"") OR match(policy, "\"Principal\":\s*{\"AWS\":\s*\"\*\"}"), "Yes", "No")
+| eval grants_external=if(match(policy, "\"AWS\":") AND NOT match(policy, "arn:aws:iam::YOUR_ACCOUNT_ID"), "Yes", "No")
+| where grants_public="Yes" OR grants_external="Yes" OR eventName="DeleteBucketPolicy"
+| table _time, actor, bucket_name, eventName, grants_public, grants_external, sourceIPAddress
+| sort - _time
+
+`comment("--- Query 2: Large-volume S3 reads from unusual IP ranges ---")`
+
+index=aws sourcetype="aws:s3:accesslogs"
+| stats sum(bytes_sent) as total_bytes, count as request_count, dc(key) as unique_objects
+  by bucket, remote_ip
+| eval total_gb=round(total_bytes/1073741824, 2)
+| where total_gb > 1 OR unique_objects > 100
+| lookup internal_ip_ranges remote_ip OUTPUT is_internal
+| where is_internal!="true"
+| sort - total_gb
+| table remote_ip, bucket, total_gb, unique_objects, request_count

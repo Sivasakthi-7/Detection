@@ -1,0 +1,32 @@
+`comment("Cross-Tenant Lateral Movement via B2B Trust")`
+`comment("Detects sign-ins and resource access from external/guest tenants")`
+`comment("MITRE ATT&CK: T1199, T1078.004")`
+`comment("Severity: Medium | Data Source: Azure AD Sign-In, AWS CloudTrail")`
+
+`comment("--- Query 1: Azure - External tenant sign-in anomalies ---")`
+
+index=azure_ad sourcetype="azure:aad:signin" 
+  HomeTenantId!=ResourceTenantId ResultType=0
+| lookup approved_tenants_lookup tenant_id AS HomeTenantId OUTPUT is_approved
+| where isnull(is_approved) OR is_approved!="true"
+| stats count, 
+        dc(AppDisplayName) as apps_accessed,
+        values(AppDisplayName) as app_list,
+        values(IPAddress) as source_ips,
+        earliest(_time) as first_seen, latest(_time) as last_seen
+  by UserPrincipalName, HomeTenantId
+| sort - count
+| table UserPrincipalName, HomeTenantId, count, apps_accessed, app_list, source_ips, first_seen, last_seen
+
+`comment("--- Query 2: AWS - Cross-account AssumeRole from unexpected accounts ---")`
+
+index=aws sourcetype="aws:cloudtrail" eventName="AssumeRole"
+| spath output=assumed_role "requestParameters.roleArn"
+| spath output=source_account "userIdentity.accountId"
+| spath output=source_arn "userIdentity.arn"
+| lookup approved_cross_accounts_lookup source_account OUTPUT is_approved
+| where isnull(is_approved) OR is_approved!="true"
+| stats count, values(assumed_role) as roles, values(sourceIPAddress) as src_ips
+  by source_account, source_arn
+| sort - count
+| table source_account, source_arn, roles, src_ips, count

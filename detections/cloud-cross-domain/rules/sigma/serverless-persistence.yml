@@ -1,0 +1,42 @@
+title: Serverless Function Abuse - Suspicious Lambda/Cloud Function Deployment
+id: b2c3d4e5-0006-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects creation or modification of serverless functions (AWS Lambda, Azure
+  Functions, GCP Cloud Functions) outside of approved CI/CD pipelines or with
+  overly permissive execution roles, potentially indicating attacker persistence.
+references:
+  - https://attack.mitre.org/techniques/T1546/
+  - https://attack.mitre.org/techniques/T1098/
+author: mikeytrr07
+tags:
+  - attack.persistence
+  - attack.t1546
+  - attack.t1098
+logsource:
+  product: aws
+  service: cloudtrail
+detection:
+  selection_events:
+    eventName:
+      - 'CreateFunction*'
+      - 'UpdateFunctionCode*'
+      - 'UpdateFunctionConfiguration*'
+  filter_cicd:
+    userIdentity.arn|contains:
+      - 'codepipeline'
+      - 'codebuild'
+      - 'terraform'
+      - 'github-actions'
+  condition: selection_events and not filter_cicd
+fields:
+  - userIdentity.arn
+  - requestParameters.functionName
+  - requestParameters.role
+  - requestParameters.runtime
+  - sourceIPAddress
+  - userAgent
+falsepositives:
+  - Manual Lambda deployments during incident response or debugging
+  - New CI/CD pipelines not yet added to the filter list
+level: high

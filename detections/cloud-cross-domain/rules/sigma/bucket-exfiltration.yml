@@ -1,0 +1,42 @@
+title: Cloud Storage Exfiltration - Bucket Policy Grants External Access
+id: b2c3d4e5-0007-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects modifications to cloud storage bucket policies (S3, GCS, Azure Blob)
+  that introduce public access or cross-account principals, which may indicate
+  data exfiltration preparation via policy manipulation.
+references:
+  - https://attack.mitre.org/techniques/T1537/
+  - https://attack.mitre.org/techniques/T1530/
+author: mikeytrr07
+tags:
+  - attack.exfiltration
+  - attack.t1537
+  - attack.collection
+  - attack.t1530
+logsource:
+  product: aws
+  service: cloudtrail
+detection:
+  selection:
+    eventName:
+      - 'PutBucketPolicy'
+      - 'PutBucketAcl'
+      - 'PutObjectAcl'
+      - 'PutBucketPublicAccessBlock'
+      - 'DeleteBucketPolicy'
+  selection_public:
+    requestParameters|contains:
+      - '"Principal":"*"'
+      - '"Principal":{"AWS":"*"}'
+  condition: selection and selection_public
+fields:
+  - userIdentity.arn
+  - requestParameters.bucketName
+  - requestParameters.bucketPolicy
+  - sourceIPAddress
+  - eventTime
+falsepositives:
+  - Legitimate public bucket configurations for static website hosting
+  - CDN origin access identity changes
+level: critical

@@ -1,0 +1,40 @@
+title: Shadow Admin - Conditional Access Policy Exclusion Modification
+id: b2c3d4e5-0008-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects modifications to Conditional Access policy exclusion lists (users,
+  groups, roles, locations), which may indicate an attacker creating a shadow
+  admin pathway by exempting their controlled accounts from security controls.
+references:
+  - https://attack.mitre.org/techniques/T1098/001/
+  - https://attack.mitre.org/techniques/T1484/002/
+author: mikeytrr07
+tags:
+  - attack.persistence
+  - attack.t1098.001
+  - attack.defense_evasion
+  - attack.t1484.002
+logsource:
+  product: azure
+  service: auditlogs
+detection:
+  selection:
+    OperationName:
+      - 'Update conditional access policy'
+      - 'Delete conditional access policy'
+  selection_exclusion:
+    TargetResources.modifiedProperties.displayName|contains:
+      - 'excludeUsers'
+      - 'excludeGroups'
+      - 'excludeRoles'
+      - 'excludeLocations'
+  condition: selection and selection_exclusion
+fields:
+  - InitiatedBy.user.userPrincipalName
+  - TargetResources.displayName
+  - TargetResources.modifiedProperties
+  - ActivityDateTime
+falsepositives:
+  - Routine Conditional Access policy updates by identity team
+  - Emergency break-glass account exclusion during outages
+level: critical

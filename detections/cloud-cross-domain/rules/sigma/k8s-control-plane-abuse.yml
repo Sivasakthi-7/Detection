@@ -1,0 +1,51 @@
+title: Kubernetes Control Plane Abuse - Privileged Pod Creation
+id: b2c3d4e5-0009-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects creation of privileged pods, pods with hostPath volume mounts, or
+  pods running as root in a Kubernetes cluster, which may indicate control
+  plane abuse for privilege escalation or node access.
+references:
+  - https://attack.mitre.org/techniques/T1609/
+  - https://attack.mitre.org/techniques/T1610/
+author: mikeytrr07
+tags:
+  - attack.execution
+  - attack.t1609
+  - attack.t1610
+  - attack.privilege_escalation
+logsource:
+  product: kubernetes
+  service: audit
+detection:
+  selection_verb:
+    verb:
+      - 'create'
+      - 'update'
+      - 'patch'
+  selection_resource:
+    objectRef.resource: 'pods'
+  selection_privileged:
+    requestObject.spec.containers.securityContext.privileged: true
+  selection_hostpath:
+    requestObject.spec.volumes.hostPath.path|startswith:
+      - '/'
+      - '/etc'
+      - '/var'
+  selection_root:
+    requestObject.spec.containers.securityContext.runAsUser: 0
+  filter_system:
+    user.username|startswith:
+      - 'system:serviceaccount:kube-system'
+      - 'system:node'
+  condition: selection_verb and selection_resource and (selection_privileged or selection_hostpath or selection_root) and not filter_system
+fields:
+  - user.username
+  - objectRef.namespace
+  - objectRef.name
+  - requestObject.spec.containers.image
+  - sourceIPs
+falsepositives:
+  - System-level DaemonSets (monitoring agents, CSI drivers, CNI plugins)
+  - Legitimate privileged workloads with approved exceptions
+level: high

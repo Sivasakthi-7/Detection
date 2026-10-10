@@ -1,0 +1,29 @@
+`comment("Serverless Function Abuse for Persistence")`
+`comment("Detects suspicious Lambda/Cloud Function creation or modification")`
+`comment("MITRE ATT&CK: T1546, T1098")`
+`comment("Severity: High | Data Source: AWS CloudTrail, GCP Audit Logs")`
+
+`comment("--- Query 1: AWS Lambda created or updated outside CI/CD pipeline ---")`
+
+index=aws sourcetype="aws:cloudtrail" 
+  eventName IN ("CreateFunction20150331", "UpdateFunctionCode20150331v2", "UpdateFunctionConfiguration20150331v2")
+| spath output=function_name "requestParameters.functionName"
+| spath output=role_arn "requestParameters.role"
+| spath output=runtime "requestParameters.runtime"
+| spath output=actor "userIdentity.arn"
+| eval is_console=if(match(userAgent, "console\.amazonaws\.com"), "Yes", "No")
+| eval has_admin_role=if(match(role_arn, "Admin|admin|PowerUser"), "Yes", "No")
+| where is_console="Yes" OR has_admin_role="Yes" OR NOT match(actor, "codepipeline|codebuild|terraform|github-actions")
+| table _time, actor, function_name, eventName, runtime, role_arn, sourceIPAddress, is_console, has_admin_role
+
+`comment("--- Query 2: Lambda with outbound network calls to unusual destinations ---")`
+
+index=aws sourcetype="aws:cloudtrail" eventSource="lambda.amazonaws.com"
+| append 
+  [search index=aws_vpcflow dest_port!=443 dest_port!=80
+   | lookup lambda_eni_lookup src_ip OUTPUT function_name
+   | where isnotnull(function_name)]
+| stats count by function_name, dest_ip, dest_port
+| lookup threat_intel_lookup dest_ip OUTPUT threat_category
+| where isnotnull(threat_category) OR NOT match(dest_ip, "^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.")
+| sort - count

@@ -1,0 +1,42 @@
+`comment("Control Plane API Abuse in Kubernetes")`
+`comment("Detects creation of privileged pods and suspicious RBAC changes")`
+`comment("MITRE ATT&CK: T1609, T1610")`
+`comment("Severity: High | Data Source: Kubernetes Audit Logs")`
+
+`comment("--- Query 1: Privileged pod or hostPath mount creation ---")`
+
+index=kubernetes sourcetype="kube:apiserver:audit"
+  verb IN ("create", "update", "patch")
+  objectRef.resource="pods"
+| spath output=namespace "objectRef.namespace"
+| spath output=pod_name "objectRef.name"
+| spath output=user "user.username"
+| spath output=spec "requestObject.spec"
+| eval is_privileged=if(match(spec, "\"privileged\":\s*true"), "Yes", "No")
+| eval has_hostpath=if(match(spec, "\"hostPath\""), "Yes", "No")
+| eval runs_as_root=if(match(spec, "\"runAsUser\":\s*0"), "Yes", "No")
+| where is_privileged="Yes" OR has_hostpath="Yes" OR runs_as_root="Yes"
+| table _time, user, namespace, pod_name, is_privileged, has_hostpath, runs_as_root, sourceIPs{}
+| sort - _time
+
+`comment("--- Query 2: Suspicious ClusterRoleBinding creation ---")`
+
+index=kubernetes sourcetype="kube:apiserver:audit"
+  verb="create" objectRef.resource="clusterrolebindings"
+| spath output=binding_name "objectRef.name"
+| spath output=role_ref "requestObject.roleRef.name"
+| spath output=subjects "requestObject.subjects{}"
+| spath output=user "user.username"
+| where match(role_ref, "cluster-admin|admin|edit")
+| table _time, user, binding_name, role_ref, subjects, sourceIPs{}
+
+`comment("--- Query 3: Exec into running containers ---")`
+
+index=kubernetes sourcetype="kube:apiserver:audit"
+  verb="create" objectRef.resource="pods" objectRef.subresource="exec"
+| spath output=namespace "objectRef.namespace"
+| spath output=pod_name "objectRef.name"
+| spath output=user "user.username"
+| spath output=exec_command "requestObject.command"
+| stats count by user, namespace, pod_name, exec_command
+| sort - count
