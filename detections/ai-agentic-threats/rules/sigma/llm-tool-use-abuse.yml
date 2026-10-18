@@ -1,0 +1,51 @@
+title: LLM Tool-Use Abuse - Agent Performing Unauthorized Actions
+id: c3d4e5f6-0012-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects AI agents invoking tools with parameters that deviate from expected
+  patterns, such as targeting external endpoints, performing write operations
+  on sensitive resources, or accessing services outside the agent's normal scope.
+references:
+  - https://atlas.mitre.org/techniques/AML.T0051/
+  - https://owasp.org/www-project-top-10-for-large-language-model-applications/
+author: mikeytrr07
+tags:
+  - attack.execution
+  - aml.t0051
+  - attack.privilege_escalation
+logsource:
+  category: application
+  product: ai_gateway
+detection:
+  selection_tool_call:
+    event_type: 'tool_invocation'
+  selection_write_ops:
+    tool_name|contains:
+      - 'write'
+      - 'delete'
+      - 'update'
+      - 'send_email'
+      - 'execute_code'
+      - 'api_call'
+  selection_external:
+    tool_parameters|contains:
+      - 'http://'
+      - 'https://'
+  filter_internal:
+    tool_parameters|contains:
+      - 'internal.'
+      - 'corp.'
+      - 'localhost'
+      - '127.0.0.1'
+  condition: selection_tool_call and selection_write_ops and selection_external and not filter_internal
+fields:
+  - session_id
+  - user_id
+  - agent_id
+  - tool_name
+  - tool_parameters
+  - model_name
+falsepositives:
+  - Agents legitimately configured to interact with external APIs
+  - Integration testing of agent capabilities
+level: high

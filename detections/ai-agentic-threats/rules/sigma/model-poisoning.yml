@@ -1,0 +1,47 @@
+title: AI Model Poisoning - Unauthorized Training Data Modification
+id: c3d4e5f6-0011-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects unauthorized modifications to AI/ML training data stores, feature
+  pipelines, or model registries, which may indicate training data poisoning
+  or backdoor insertion attempts.
+references:
+  - https://atlas.mitre.org/techniques/AML.T0020/
+author: mikeytrr07
+tags:
+  - attack.impact
+  - aml.t0020
+logsource:
+  product: aws
+  service: cloudtrail
+detection:
+  selection_data_write:
+    eventName:
+      - 'PutObject'
+      - 'DeleteObject'
+      - 'CopyObject'
+  selection_ml_paths:
+    requestParameters.key|contains:
+      - 'training-data'
+      - 'training_data'
+      - 'datasets/'
+      - 'features/'
+      - 'labels/'
+      - 'ml-pipeline'
+  filter_approved:
+    userIdentity.arn|contains:
+      - 'sagemaker'
+      - 'ml-pipeline'
+      - 'airflow'
+      - 'kubeflow'
+  condition: selection_data_write and selection_ml_paths and not filter_approved
+fields:
+  - userIdentity.arn
+  - requestParameters.bucketName
+  - requestParameters.key
+  - sourceIPAddress
+  - eventTime
+falsepositives:
+  - Data engineers performing legitimate data updates outside scheduled pipelines
+  - Ad-hoc data quality fixes by approved ML team members
+level: high

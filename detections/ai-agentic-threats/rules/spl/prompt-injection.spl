@@ -1,0 +1,32 @@
+`comment("Prompt Injection Against Agentic AI Workflows")`
+`comment("Detects suspicious prompt patterns and anomalous agent tool invocations")`
+`comment("MITRE ATLAS: AML.T0051")`
+`comment("Severity: High | Data Source: AI Gateway Logs, Application Logs")`
+
+`comment("--- Query 1: Detect instruction-override patterns in prompts ---")`
+
+index=ai_gateway sourcetype="ai:gateway:logs"
+| eval prompt_lower=lower(prompt_text)
+| eval injection_score=0
+| eval injection_score=injection_score + if(match(prompt_lower, "ignore (all |any )?(previous |prior |above )?instructions"), 2, 0)
+| eval injection_score=injection_score + if(match(prompt_lower, "you are now|act as|pretend (to be|you are)"), 1, 0)
+| eval injection_score=injection_score + if(match(prompt_lower, "system prompt|system message|reveal (your|the) (instructions|prompt)"), 2, 0)
+| eval injection_score=injection_score + if(match(prompt_lower, "do not follow|disregard|override"), 1, 0)
+| eval injection_score=injection_score + if(match(prompt_lower, "base64|eval\(|exec\(|import os"), 2, 0)
+| where injection_score >= 2
+| table _time, user_id, session_id, injection_score, prompt_text, model_name, source_app
+| sort - injection_score
+
+`comment("--- Query 2: Agent tool invocations inconsistent with user intent ---")`
+
+index=ai_gateway sourcetype="ai:agent:tool_calls"
+| stats dc(tool_name) as unique_tools, 
+        values(tool_name) as tools_called,
+        count as total_calls,
+        values(tool_parameters) as params
+  by session_id, user_id
+| where unique_tools > 5 OR total_calls > 20
+| eval has_sensitive_tool=if(match(tools_called, "send_email|delete|write_file|execute_code|api_call"), "Yes", "No")
+| where has_sensitive_tool="Yes"
+| sort - total_calls
+| table session_id, user_id, unique_tools, total_calls, tools_called

@@ -1,0 +1,37 @@
+`comment("Shadow AI and Unsanctioned Model Deployment")`
+`comment("Detects connections to unauthorized AI platforms and GPU resource provisioning")`
+`comment("MITRE ATT&CK: T1204, T1567")`
+`comment("Severity: Medium | Data Source: Proxy/CASB Logs, Cloud Resource Logs, DLP")`
+
+`comment("--- Query 1: Outbound traffic to unauthorized AI service APIs ---")`
+
+index=proxy sourcetype IN ("bluecoat", "zscaler", "netskope")
+| eval ai_service=case(
+    match(url, "api\.openai\.com"), "OpenAI",
+    match(url, "api\.anthropic\.com"), "Anthropic",
+    match(url, "huggingface\.co"), "HuggingFace",
+    match(url, "replicate\.com"), "Replicate",
+    match(url, "api\.cohere\."), "Cohere",
+    match(url, "generativelanguage\.googleapis\.com"), "Google AI",
+    match(url, "api\.mistral\.ai"), "Mistral",
+    match(url, "api\.together\.xyz"), "Together AI",
+    1=1, null()
+  )
+| where isnotnull(ai_service)
+| lookup approved_ai_services ai_service OUTPUT is_approved
+| where isnull(is_approved) OR is_approved!="true"
+| stats count, sum(bytes_out) as data_sent_bytes, dc(src_ip) as unique_users
+  by ai_service, cs_username
+| eval data_sent_mb=round(data_sent_bytes/1048576, 2)
+| sort - data_sent_mb
+| table cs_username, ai_service, count, data_sent_mb, unique_users
+
+`comment("--- Query 2: Unexpected GPU instance provisioning ---")`
+
+index=aws sourcetype="aws:cloudtrail" eventName="RunInstances"
+| spath output=instance_type "requestParameters.instanceType"
+| where match(instance_type, "^p[2-5]\.|^g[4-6]\.|^inf|^trn|^dl")
+| spath output=actor "userIdentity.arn"
+| lookup approved_ml_projects actor OUTPUT project_name
+| where isnull(project_name)
+| table _time, actor, instance_type, sourceIPAddress, awsRegion

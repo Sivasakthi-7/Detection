@@ -1,0 +1,28 @@
+`comment("LLM Tool-Use Abuse and Autonomous Action Hijacking")`
+`comment("Detects AI agents performing unauthorized tool calls or accessing out-of-scope resources")`
+`comment("MITRE ATLAS: AML.T0051, AML.T0048")`
+`comment("Severity: High | Data Source: Agent Execution Logs, API Gateway")`
+
+`comment("--- Query 1: Agent tool calls with anomalous parameters ---")`
+
+index=ai_gateway sourcetype="ai:agent:tool_calls"
+| eval is_write_action=if(match(tool_name, "write|delete|update|send|post|put|execute"), "Yes", "No")
+| eval targets_external=if(match(tool_parameters, "http[s]?://(?!internal|corp|localhost)"), "Yes", "No")
+| eval has_broad_query=if(match(tool_parameters, "SELECT \*|\.\.\/|\/\*|\*\.\*|rm -rf"), "Yes", "No")
+| where is_write_action="Yes" AND (targets_external="Yes" OR has_broad_query="Yes")
+| stats count, values(tool_name) as tools, values(tool_parameters) as params
+  by session_id, user_id, agent_id
+| sort - count
+| table session_id, user_id, agent_id, tools, params, count
+
+`comment("--- Query 2: Agent service identity accessing resources outside normal scope ---")`
+
+index=cloud_audit sourcetype IN ("aws:cloudtrail", "azure:activity")
+| spath output=actor "userIdentity.arn"
+| where match(actor, "agent-|ai-service-|llm-")
+| stats dc(eventName) as unique_actions, values(eventName) as actions, 
+        dc(eventSource) as unique_services, values(eventSource) as services
+  by actor
+| where unique_services > 3 OR unique_actions > 10
+| sort - unique_services
+| table actor, unique_services, services, unique_actions, actions

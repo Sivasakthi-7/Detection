@@ -1,0 +1,56 @@
+title: Prompt Injection - Instruction Override Patterns in AI Input
+id: c3d4e5f6-0010-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects potential prompt injection attacks against agentic AI workflows by
+  identifying instruction-override patterns, role-play directives, or encoded
+  payloads in user inputs to AI systems with tool-use capabilities.
+references:
+  - https://atlas.mitre.org/techniques/AML.T0051/
+  - https://owasp.org/www-project-top-10-for-large-language-model-applications/
+author: mikeytrr07
+tags:
+  - attack.initial_access
+  - cve.none
+  - aml.t0051
+logsource:
+  category: application
+  product: ai_gateway
+detection:
+  selection_override:
+    prompt_text|contains:
+      - 'ignore previous instructions'
+      - 'ignore all instructions'
+      - 'ignore prior instructions'
+      - 'disregard your instructions'
+      - 'override your system prompt'
+  selection_roleplay:
+    prompt_text|contains:
+      - 'you are now'
+      - 'act as'
+      - 'pretend you are'
+      - 'your new role is'
+  selection_exfil:
+    prompt_text|contains:
+      - 'reveal your system prompt'
+      - 'show me your instructions'
+      - 'what is your system message'
+  selection_code:
+    prompt_text|contains:
+      - 'base64'
+      - 'eval('
+      - 'exec('
+      - 'import os'
+      - '__import__'
+  condition: selection_override or selection_exfil or (selection_roleplay and selection_code)
+fields:
+  - user_id
+  - session_id
+  - prompt_text
+  - model_name
+  - source_application
+  - timestamp
+falsepositives:
+  - Security researchers testing AI guardrails
+  - Legitimate prompts discussing prompt injection in educational context
+level: high

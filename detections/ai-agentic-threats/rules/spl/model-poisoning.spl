@@ -1,0 +1,30 @@
+`comment("AI Model Poisoning via Training Data Manipulation")`
+`comment("Detects unauthorized changes to training data pipelines and model registries")`
+`comment("MITRE ATLAS: AML.T0020")`
+`comment("Severity: High | Data Source: Data Pipeline Logs, Model Registry Audit")`
+
+`comment("--- Query 1: Unauthorized modifications to training data stores ---")`
+
+index=cloud_audit sourcetype IN ("aws:cloudtrail", "gcp:audit", "azure:activity")
+  (eventName IN ("PutObject", "DeleteObject", "CopyObject") OR 
+   methodName IN ("storage.objects.create", "storage.objects.delete"))
+| spath output=resource_path "requestParameters.key"
+| where match(resource_path, "training[_-]data|datasets|features|labels")
+| spath output=actor "userIdentity.arn"
+| lookup approved_ml_pipelines actor OUTPUT is_approved_pipeline
+| where isnull(is_approved_pipeline) OR is_approved_pipeline!="true"
+| stats count, dc(resource_path) as files_modified, values(resource_path) as affected_paths
+  by actor, eventName
+| sort - count
+| table actor, eventName, files_modified, affected_paths, count
+
+`comment("--- Query 2: Model registry modifications from unexpected sources ---")`
+
+index=ml_platform sourcetype="mlflow:audit" OR sourcetype="sagemaker:audit" OR sourcetype="vertexai:audit"
+  action IN ("RegisterModel", "UpdateModel", "CreateModelVersion", "TransitionModelStage")
+| eval is_production=if(match(stage, "Production|Staging"), "Yes", "No")
+| spath output=actor "user"
+| lookup approved_ml_engineers actor OUTPUT is_approved
+| where (isnull(is_approved) OR is_approved!="true") AND is_production="Yes"
+| table _time, actor, action, model_name, stage, version, source_ip
+| sort - _time

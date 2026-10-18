@@ -1,0 +1,46 @@
+title: Shadow AI - Unsanctioned AI Platform Access
+id: c3d4e5f6-0013-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects network connections to unauthorized AI service APIs from corporate
+  endpoints, indicating unsanctioned use of AI platforms that may expose
+  sensitive data or introduce ungoverned AI capabilities.
+references:
+  - https://attack.mitre.org/techniques/T1204/
+  - https://attack.mitre.org/techniques/T1567/
+author: mikeytrr07
+tags:
+  - attack.exfiltration
+  - attack.t1567
+  - attack.execution
+  - attack.t1204
+logsource:
+  category: proxy
+detection:
+  selection_ai_apis:
+    r-dns|endswith:
+      - '.openai.com'
+      - '.anthropic.com'
+      - '.huggingface.co'
+      - '.replicate.com'
+      - '.cohere.ai'
+      - '.mistral.ai'
+      - '.together.xyz'
+      - 'generativelanguage.googleapis.com'
+  filter_approved:
+    # Update with your organization's approved AI service domains
+    r-dns|endswith:
+      - '.your-approved-ai-vendor.com'
+  condition: selection_ai_apis and not filter_approved
+fields:
+  - c-ip
+  - cs-username
+  - r-dns
+  - cs-uri
+  - sc-bytes
+  - cs-bytes
+  - timestamp
+falsepositives:
+  - Developers evaluating AI platforms with approved exceptions
+  - Browser extensions or plugins making background API calls
+level: medium
