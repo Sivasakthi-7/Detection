@@ -1,0 +1,35 @@
+`comment("UEFI Bootkit Persistence")`
+`comment("Detects modifications to EFI System Partition and Secure Boot anomalies")`
+`comment("MITRE ATT&CK: T1542.003, T1014")`
+`comment("Severity: Critical | Data Source: Sysmon, Windows Security, TPM Logs")`
+
+`comment("--- Query 1: Unexpected writes to EFI System Partition ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=11
+| where match(TargetFilename, "(?i)\\\\EFI\\\\|\\\\Boot\\\\|\.efi$")
+| eval suspicious=if(NOT match(Image, "(?i)windows\\\\system32\\\\|TrustedInstaller|wuauclt|SetupHost"), "Yes", "No")
+| where suspicious="Yes"
+| table _time, Computer, User, Image, TargetFilename, Hashes
+| sort - _time
+
+`comment("--- Query 2: Secure Boot configuration changes ---")`
+
+index=windows sourcetype="WinEventLog:System"
+  (EventCode=1 ProviderName="Microsoft-Windows-TPM-WMI") OR
+  (EventCode=12 ProviderName="Microsoft-Windows-Kernel-Boot")
+| eval event_desc=case(
+    EventCode=1, "TPM configuration changed",
+    EventCode=12, "Boot configuration modified"
+  )
+| table _time, Computer, EventCode, event_desc, Message
+| sort - _time
+
+`comment("--- Query 3: Unexpected kernel driver loads at boot ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=6
+| eval is_signed=if(SignatureStatus="Valid", "Yes", "No")
+| where is_signed="No" OR match(Signature, "Unknown|Expired|Revoked")
+| eval is_boot_driver=if(match(ImageLoaded, "(?i)\\\\drivers\\\\|\\\\boot\\\\"), "Yes", "No")
+| where is_boot_driver="Yes"
+| table _time, Computer, ImageLoaded, Hashes, SignatureStatus, Signature
+| sort - _time

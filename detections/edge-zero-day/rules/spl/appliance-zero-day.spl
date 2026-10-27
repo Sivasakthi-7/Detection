@@ -1,0 +1,37 @@
+`comment("Zero-Day Exploitation of Network Appliances")`
+`comment("Detects anomalous behavior on network appliances indicating exploitation")`
+`comment("MITRE ATT&CK: T1190, T1210")`
+`comment("Severity: Critical | Data Source: Appliance Syslogs, NetFlow, IDS/IPS")`
+
+`comment("--- Query 1: Unusual processes or crash patterns on appliances ---")`
+
+index=network_devices sourcetype IN ("cisco:ios", "paloalto:system", "fortinet:log", "ivanti:system")
+  (severity="critical" OR severity="emergency" OR action="crash" OR action="core_dump")
+| stats count, values(action) as events, earliest(_time) as first, latest(_time) as last
+  by device_hostname, device_ip, severity
+| eval time_window_hrs=round((last-first)/3600, 2)
+| sort - count
+| table device_hostname, device_ip, severity, events, count, time_window_hrs
+
+`comment("--- Query 2: Outbound connections from appliance management interfaces ---")`
+
+index=netflow sourcetype="netflow"
+| lookup appliance_mgmt_ips src_ip OUTPUT device_name, mgmt_vlan
+| where isnotnull(device_name)
+| where dest_port NOT IN (53, 123, 514, 6514, 443, 22)
+| where NOT match(dest_ip, "^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.")
+| stats count, dc(dest_ip) as unique_dests, values(dest_ip) as dest_ips, values(dest_port) as dest_ports
+  by src_ip, device_name
+| where count > 0
+| sort - count
+| table device_name, src_ip, unique_dests, dest_ips, dest_ports, count
+
+`comment("--- Query 3: Web shell indicators on appliance management portals ---")`
+
+index=network_devices sourcetype IN ("paloalto:web", "fortinet:webfilter", "ivanti:web")
+  (uri_path="*.jsp" OR uri_path="*.php" OR uri_path="*.aspx")
+  method IN ("POST", "GET")
+| where NOT match(uri_path, "login|dashboard|api/v[0-9]")
+| stats count by src_ip, uri_path, method, status_code, device_hostname
+| where count > 0
+| sort - count

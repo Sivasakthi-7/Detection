@@ -1,0 +1,37 @@
+title: Firmware Implant - Edge Device Firmware Hash Mismatch
+id: d4e5f6a7-0014-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects firmware integrity violations on edge and IoT devices by comparing
+  observed firmware hashes against known-good baselines, indicating potential
+  firmware-level implants or unauthorized modifications.
+references:
+  - https://attack.mitre.org/techniques/T1542/001/
+  - https://attack.mitre.org/techniques/T1495/
+author: mikeytrr07
+tags:
+  - attack.persistence
+  - attack.t1542.001
+  - attack.t1495
+  - attack.defense_evasion
+logsource:
+  category: firmware
+  product: network_device
+detection:
+  selection:
+    event_type: 'firmware_integrity_check'
+  filter_match:
+    result: 'match'
+  condition: selection and not filter_match
+fields:
+  - device_hostname
+  - device_type
+  - device_ip
+  - firmware_version
+  - expected_hash
+  - observed_hash
+  - check_timestamp
+falsepositives:
+  - Firmware updated through approved processes but baseline not yet refreshed
+  - Hash calculation differences due to vendor-specific metadata changes
+level: critical

@@ -1,0 +1,48 @@
+title: UEFI Bootkit - Suspicious EFI System Partition Modification
+id: d4e5f6a7-0016-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects unexpected file creation or modification in the EFI System Partition
+  by processes other than trusted Windows servicing components, which may
+  indicate UEFI bootkit installation.
+references:
+  - https://attack.mitre.org/techniques/T1542/003/
+  - https://attack.mitre.org/techniques/T1014/
+author: mikeytrr07
+tags:
+  - attack.persistence
+  - attack.t1542.003
+  - attack.defense_evasion
+  - attack.t1014
+logsource:
+  product: windows
+  category: file_event
+  service: sysmon
+detection:
+  selection_path:
+    TargetFilename|contains:
+      - '\EFI\'
+      - '\Boot\'
+  selection_ext:
+    TargetFilename|endswith:
+      - '.efi'
+      - '.bin'
+  filter_trusted:
+    Image|endswith:
+      - '\TrustedInstaller.exe'
+      - '\wuauclt.exe'
+      - '\SetupHost.exe'
+      - '\securebootrecovery.exe'
+    Image|startswith: 'C:\Windows\System32\'
+  condition: (selection_path or selection_ext) and not filter_trusted
+fields:
+  - Computer
+  - User
+  - Image
+  - TargetFilename
+  - Hashes
+  - CreationUtcTime
+falsepositives:
+  - Firmware update utilities from hardware vendors (Dell, HP, Lenovo)
+  - Windows Feature Updates modifying boot configuration
+level: critical

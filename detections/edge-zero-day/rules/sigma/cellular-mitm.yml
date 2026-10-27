@@ -1,0 +1,40 @@
+title: Cellular MITM - Mobile Threat Defense Rogue Base Station Alert
+id: d4e5f6a7-0017-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects mobile threat defense (MTD) alerts indicating rogue base stations,
+  forced protocol downgrades, or cellular MITM attacks targeting mobile
+  endpoints, potentially enabling SMS MFA interception.
+references:
+  - https://attack.mitre.org/techniques/T1557/
+  - https://attack.mitre.org/techniques/T1123/
+author: mikeytrr07
+tags:
+  - attack.credential_access
+  - attack.t1557
+  - attack.collection
+  - attack.t1123
+logsource:
+  category: application
+  product: mobile_threat_defense
+detection:
+  selection:
+    threat_category:
+      - 'rogue_base_station'
+      - 'network_attack'
+      - 'protocol_downgrade'
+      - 'cellular_mitm'
+      - 'imsi_catcher'
+  condition: selection
+fields:
+  - user_email
+  - device_id
+  - device_name
+  - threat_category
+  - threat_severity
+  - cell_tower_id
+  - network_type
+falsepositives:
+  - Poor cellular coverage causing legitimate protocol fallback
+  - MTD false positives in areas with weak signal strength
+level: high

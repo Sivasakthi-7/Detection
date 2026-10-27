@@ -1,0 +1,50 @@
+title: Network Appliance Zero-Day - Anomalous Outbound Traffic from Management Interface
+id: d4e5f6a7-0015-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects unusual outbound network connections from network appliance management
+  interfaces to external IPs on non-standard ports, which may indicate
+  exploitation of a zero-day vulnerability and establishment of C2.
+references:
+  - https://attack.mitre.org/techniques/T1190/
+  - https://attack.mitre.org/techniques/T1210/
+author: mikeytrr07
+tags:
+  - attack.initial_access
+  - attack.t1190
+  - attack.t1210
+  - attack.command_and_control
+logsource:
+  category: firewall
+detection:
+  selection_source:
+    src_ip|cidr:
+      # Replace with your appliance management subnet
+      - '10.0.100.0/24'
+  selection_external:
+    dst_ip|cidr:
+      - '0.0.0.0/0'
+  filter_internal:
+    dst_ip|cidr:
+      - '10.0.0.0/8'
+      - '172.16.0.0/12'
+      - '192.168.0.0/16'
+  filter_known_services:
+    dst_port:
+      - 53    # DNS
+      - 123   # NTP
+      - 514   # Syslog
+      - 6514  # Syslog TLS
+      - 443   # HTTPS updates
+  condition: selection_source and selection_external and not filter_internal and not filter_known_services
+fields:
+  - src_ip
+  - dst_ip
+  - dst_port
+  - bytes_sent
+  - bytes_received
+  - protocol
+falsepositives:
+  - Appliance vendor telemetry or update checks on non-standard ports
+  - Legitimate SNMP or monitoring traffic to external collectors
+level: critical

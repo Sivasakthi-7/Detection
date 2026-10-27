@@ -1,0 +1,33 @@
+`comment("Firmware Implants on Edge / IoT Devices")`
+`comment("Detects firmware integrity violations and anomalous edge device behavior")`
+`comment("MITRE ATT&CK: T1542.001, T1495")`
+`comment("Severity: Critical | Data Source: Device Mgmt Logs, NetFlow, Firmware Checks")`
+
+`comment("--- Query 1: Firmware hash mismatch against known-good baseline ---")`
+
+index=device_mgmt sourcetype="firmware:integrity"
+| eval hash_match=if(expected_hash=observed_hash, "Match", "MISMATCH")
+| where hash_match="MISMATCH"
+| table _time, device_hostname, device_type, firmware_version, expected_hash, observed_hash, device_ip
+| sort - _time
+
+`comment("--- Query 2: Unexpected outbound connections from infrastructure devices ---")`
+
+index=netflow sourcetype="netflow" OR sourcetype="network:flow"
+| lookup infrastructure_devices src_ip OUTPUT device_type, device_hostname
+| where isnotnull(device_type)
+| lookup known_mgmt_destinations dest_ip OUTPUT is_known_destination
+| where isnull(is_known_destination) OR is_known_destination!="true"
+| where NOT match(dest_ip, "^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.")
+| stats count, sum(bytes) as total_bytes, dc(dest_ip) as unique_destinations, values(dest_ip) as dest_ips
+  by src_ip, device_hostname, device_type
+| sort - total_bytes
+| table device_hostname, device_type, src_ip, unique_destinations, dest_ips, total_bytes, count
+
+`comment("--- Query 3: Unauthorized firmware update operations ---")`
+
+index=device_mgmt sourcetype IN ("cisco:ios", "paloalto:system", "fortinet:system")
+  action IN ("firmware_update", "image_install", "boot_config_change")
+| lookup approved_firmware_updates change_ticket OUTPUT is_approved
+| where isnull(is_approved)
+| table _time, device_hostname, action, actor, source_ip, firmware_version

@@ -1,0 +1,38 @@
+`comment("Rogue Base Station / Cellular MITM on Mobile Endpoints")`
+`comment("Detects indicators of cellular MITM and SMS MFA interception")`
+`comment("MITRE ATT&CK: T1557, T1123")`
+`comment("Severity: High | Data Source: MDM/MTD Logs, MFA Logs, RF Monitoring")`
+
+`comment("--- Query 1: Mobile device protocol downgrade detection ---")`
+
+index=mobile_security sourcetype IN ("lookout:events", "zimperium:events", "microsoft:mtd")
+  threat_category IN ("rogue_base_station", "network_attack", "protocol_downgrade", "mitm")
+| stats count, values(threat_category) as threats, values(device_name) as devices
+  by user_email, device_id
+| sort - count
+| table user_email, device_id, devices, threats, count
+
+`comment("--- Query 2: SMS MFA code used by different device than recipient ---")`
+
+index=azure_ad sourcetype="azure:aad:signin"
+  "AuthenticationDetails{}.authenticationMethod"="SMS"
+  ResultType=0
+| spath output=device_id "DeviceDetail.deviceId"
+| spath output=device_name "DeviceDetail.displayName"
+| eval login_ip=IPAddress
+| join type=left UserPrincipalName 
+  [search index=mobile_security sourcetype="mdm:device_inventory"
+   | rename user_email as UserPrincipalName
+   | stats values(device_ip) as registered_device_ips by UserPrincipalName]
+| where NOT match(login_ip, registered_device_ips)
+| table _time, UserPrincipalName, login_ip, registered_device_ips, device_name, AppDisplayName
+
+`comment("--- Query 3: Burst of SMS MFA failures indicating interception ---")`
+
+index=azure_ad sourcetype="azure:aad:signin"
+  "AuthenticationDetails{}.authenticationMethod"="SMS"
+  ResultType!=0
+| bin _time span=30m
+| stats count as sms_failures by UserPrincipalName, _time
+| where sms_failures >= 3
+| sort - sms_failures
