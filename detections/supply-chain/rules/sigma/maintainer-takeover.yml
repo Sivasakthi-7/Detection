@@ -1,0 +1,43 @@
+title: Maintainer Account Takeover - Critical Package Ownership Change
+id: e5f6a7b8-0021-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects changes to maintainer accounts on critical open-source dependencies,
+  including ownership transfers, MFA disabling, or new publish tokens being
+  created, which may indicate an account takeover targeting the supply chain.
+references:
+  - https://attack.mitre.org/techniques/T1195/001/
+  - https://attack.mitre.org/techniques/T1199/
+author: mikeytrr07
+tags:
+  - attack.supply_chain
+  - attack.t1195.001
+  - attack.t1199
+logsource:
+  category: application
+  product: package_registry
+detection:
+  selection_account_changes:
+    action:
+      - 'owner_added'
+      - 'owner_removed'
+      - 'maintainer_changed'
+      - 'collaborator_added'
+      - 'mfa_disabled'
+      - 'token_created'
+      - 'email_changed'
+  # Note: Requires enrichment against a critical dependencies list
+  # (SBOM-derived) to focus on packages in your dependency tree.
+  condition: selection_account_changes
+fields:
+  - package_name
+  - action
+  - actor
+  - actor_ip
+  - previous_owner
+  - new_owner
+  - timestamp
+falsepositives:
+  - Planned maintainer transitions with proper handoff
+  - Open-source project governance changes
+level: high

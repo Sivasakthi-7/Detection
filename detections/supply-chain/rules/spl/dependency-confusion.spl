@@ -1,0 +1,39 @@
+`comment("Dependency Confusion / Namespace Hijacking")`
+`comment("Detects package installations from public registries matching internal names")`
+`comment("MITRE ATT&CK: T1195.001")`
+`comment("Severity: High | Data Source: Build Pipeline Logs, Package Manager Logs")`
+
+`comment("--- Query 1: Public package installed matching internal naming convention ---")`
+
+index=cicd sourcetype IN ("jenkins:build", "github:actions", "gitlab:ci")
+| rex field=build_log "(?i)(npm install|pip install|gem install|nuget install|dotnet restore).*?(?P<package_name>@?[\w\-\.\/]+)"
+| lookup internal_packages_lookup package_name OUTPUT is_internal_name
+| where is_internal_name="true"
+| eval source_registry=case(
+    match(build_log, "registry\.npmjs\.org"), "npm_public",
+    match(build_log, "pypi\.org"), "pypi_public",
+    match(build_log, "rubygems\.org"), "rubygems_public",
+    match(build_log, "nuget\.org"), "nuget_public",
+    1=1, "unknown"
+  )
+| where source_registry!="unknown" AND NOT match(source_registry, "internal|private|artifactory")
+| table _time, pipeline_name, package_name, source_registry, build_id, triggered_by
+
+`comment("--- Query 2: Outbound network connections during package install phase ---")`
+
+index=cicd sourcetype IN ("jenkins:build", "github:actions")
+  build_phase="dependency_install"
+| spath output=network_calls "network_connections{}"
+| mvexpand network_calls
+| where NOT match(network_calls, "registry\.npmjs\.org|pypi\.org|rubygems\.org|nuget\.org|artifactory|nexus")
+| stats count, values(network_calls) as suspicious_connections
+  by pipeline_name, build_id
+| where count > 0
+| sort - count
+
+`comment("--- Query 3: Public packages with suspiciously high version numbers ---")`
+
+index=package_registry sourcetype="registry:audit"
+  action="publish" registry_type="public"
+| where version_major > 99 OR tonumber(replace(version, "\.", "")) > 99999
+| table _time, package_name, version, publisher, publisher_email, registry

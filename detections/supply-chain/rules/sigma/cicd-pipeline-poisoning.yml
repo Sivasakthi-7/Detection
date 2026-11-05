@@ -1,0 +1,49 @@
+title: CI/CD Pipeline Poisoning - Workflow Config Modified by External Contributor
+id: e5f6a7b8-0019-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects modifications to CI/CD pipeline configuration files (GitHub Actions
+  workflows, Jenkinsfile, .gitlab-ci.yml) by contributors outside the core
+  maintainer team, which may indicate pipeline poisoning attempts.
+references:
+  - https://attack.mitre.org/techniques/T1195/002/
+  - https://www.cidersecurity.io/top-10-cicd-security-risks/
+author: mikeytrr07
+tags:
+  - attack.supply_chain
+  - attack.t1195.002
+  - attack.execution
+logsource:
+  product: github
+  service: audit
+detection:
+  selection_action:
+    action:
+      - 'git.push'
+      - 'pull_request.merged'
+  selection_files:
+    files|contains:
+      - '.github/workflows/'
+      - '.gitlab-ci.yml'
+      - 'Jenkinsfile'
+      - '.circleci/'
+      - 'azure-pipelines.yml'
+      - '.travis.yml'
+  filter_bots:
+    actor|endswith:
+      - '[bot]'
+      - '-bot'
+  condition: selection_action and selection_files and not filter_bots
+  # Post-processing: Enrich actor against a core-contributors allowlist.
+  # Alert on modifications by non-core contributors.
+fields:
+  - actor
+  - repository
+  - files
+  - commit_sha
+  - branch
+  - timestamp
+falsepositives:
+  - New team members not yet added to the core contributors list
+  - Dependabot or Renovate updating pipeline dependencies
+level: critical

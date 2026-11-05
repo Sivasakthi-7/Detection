@@ -1,0 +1,39 @@
+`comment("Compromised Open-Source Maintainer Account Takeover")`
+`comment("Detects suspicious package updates and maintainer account changes")`
+`comment("MITRE ATT&CK: T1195.001, T1199")`
+`comment("Severity: High | Data Source: Package Registry, Dependency Diff, SBOM")`
+
+`comment("--- Query 1: Package version published outside normal release cadence ---")`
+
+index=package_registry sourcetype="registry:audit"
+  action="publish"
+| eval publish_hour=strftime(_time, "%H")
+| eval publish_dow=strftime(_time, "%A")
+| stats count, avg(publish_hour) as avg_hour, stdev(publish_hour) as std_hour,
+        values(publish_dow) as publish_days
+  by package_name, publisher
+| join type=left package_name 
+  [search index=package_registry sourcetype="registry:audit" action="publish" earliest=-90d latest=-1d
+   | stats avg(strftime(_time, "%H")) as historical_avg_hour, 
+           stdev(strftime(_time, "%H")) as historical_std_hour
+     by package_name]
+| eval hour_deviation=abs(avg_hour - historical_avg_hour)
+| where hour_deviation > (2 * historical_std_hour) OR isnull(historical_avg_hour)
+| table package_name, publisher, avg_hour, historical_avg_hour, hour_deviation, publish_days
+
+`comment("--- Query 2: Dependency diff reveals suspicious additions ---")`
+
+index=cicd sourcetype="dependency:diff"
+  change_type IN ("added", "modified")
+| where match(diff_content, "(?i)(eval|exec|fetch|http|net\.Socket|child_process|subprocess|base64)")
+  AND match(diff_content, "(?i)(install|preinstall|postinstall|setup\.py)")
+| table _time, package_name, old_version, new_version, change_type, diff_summary, repository
+
+`comment("--- Query 3: Maintainer account changes on critical dependencies ---")`
+
+index=package_registry sourcetype="registry:audit"
+  action IN ("owner_added", "owner_removed", "maintainer_changed", "token_created", "mfa_disabled")
+| lookup critical_dependencies package_name OUTPUT is_critical
+| where is_critical="true"
+| table _time, package_name, action, actor, actor_ip, previous_owner, new_owner
+| sort - _time

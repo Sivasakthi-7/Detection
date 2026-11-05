@@ -1,0 +1,46 @@
+title: Code Signing Abuse - Executable Signed by Recently Issued Certificate
+id: e5f6a7b8-0020-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects executables signed with recently issued (less than 30 days old),
+  untrusted, expired, or revoked code signing certificates from unknown
+  publishers, which may indicate malware signed with fraudulently obtained
+  or stolen certificates.
+references:
+  - https://attack.mitre.org/techniques/T1553/002/
+  - https://attack.mitre.org/techniques/T1588/003/
+author: mikeytrr07
+tags:
+  - attack.defense_evasion
+  - attack.t1553.002
+  - attack.resource_development
+  - attack.t1588.003
+logsource:
+  product: windows
+  category: driver_load
+  service: sysmon
+detection:
+  selection:
+    EventID: 6
+  selection_untrusted:
+    SignatureStatus:
+      - 'Unavailable'
+      - 'Expired'
+      - 'Revoked'
+      - 'Untrusted'
+  filter_microsoft:
+    Signature|contains:
+      - 'Microsoft'
+      - 'Windows'
+  condition: selection and selection_untrusted and not filter_microsoft
+fields:
+  - Computer
+  - ImageLoaded
+  - Hashes
+  - SignatureStatus
+  - Signature
+  - SignedBy
+falsepositives:
+  - Legitimate software with expired but functional certificates
+  - Custom in-house drivers with self-signed certificates
+level: high

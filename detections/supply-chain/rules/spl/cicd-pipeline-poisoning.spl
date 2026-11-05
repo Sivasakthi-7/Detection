@@ -1,0 +1,43 @@
+`comment("CI/CD Pipeline Poisoning")`
+`comment("Detects unauthorized modifications to pipeline configs and runner compromise")`
+`comment("MITRE ATT&CK: T1195.002")`
+`comment("Severity: Critical | Data Source: SCM Audit, Pipeline Execution, Runner Logs")`
+
+`comment("--- Query 1: Pipeline config file modified by non-core contributor ---")`
+
+index=scm sourcetype IN ("github:audit", "gitlab:audit", "bitbucket:audit")
+  action IN ("push", "merge", "commit")
+| spath output=files_changed "files{}"
+| mvexpand files_changed
+| where match(files_changed, "(?i)(\.github/workflows|\.gitlab-ci|Jenkinsfile|\.circleci|\.azure-pipelines|\.travis)")
+| spath output=author "actor"
+| lookup core_contributors_lookup author OUTPUT is_core_contributor
+| where isnull(is_core_contributor) OR is_core_contributor!="true"
+| table _time, author, repository, files_changed, commit_sha, branch
+
+`comment("--- Query 2: Pipeline jobs accessing secrets not historically needed ---")`
+
+index=cicd sourcetype IN ("github:actions:logs", "gitlab:ci:logs")
+  event_type="secret_access"
+| stats dc(secret_name) as secrets_accessed, values(secret_name) as secret_list
+  by pipeline_name, job_name, triggered_by
+| join type=left pipeline_name, job_name
+  [search index=cicd sourcetype IN ("github:actions:logs", "gitlab:ci:logs")
+     event_type="secret_access" earliest=-30d latest=-1d
+   | stats dc(secret_name) as historical_secret_count, values(secret_name) as historical_secrets
+     by pipeline_name, job_name]
+| eval new_secrets=mvfilter(NOT match(secret_list, historical_secrets))
+| where isnotnull(new_secrets)
+| table pipeline_name, job_name, triggered_by, new_secrets, historical_secrets
+
+`comment("--- Query 3: Build artifacts with unexpected hash changes ---")`
+
+index=cicd sourcetype="artifact:registry"
+  action="publish"
+| eval artifact_hash=sha256
+| stats latest(artifact_hash) as current_hash, 
+        earliest(artifact_hash) as previous_hash,
+        count
+  by artifact_name, artifact_version
+| where current_hash!=previous_hash AND count > 1
+| table artifact_name, artifact_version, previous_hash, current_hash

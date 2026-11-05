@@ -1,0 +1,42 @@
+`comment("Malicious Code Signing Certificate Abuse")`
+`comment("Detects executables signed by suspicious or newly-issued certificates")`
+`comment("MITRE ATT&CK: T1553.002, T1588.003")`
+`comment("Severity: High | Data Source: Endpoint Telemetry, Certificate Transparency")`
+
+`comment("--- Query 1: Executable signed by unknown or recently-issued certificate ---")`
+
+index=endpoint sourcetype IN ("crowdstrike:events", "defender:events", "sysmon")
+  EventCode=7 OR event_type="ImageLoad" OR event_type="ProcessCreate"
+| eval is_signed=if(isnotnull(Signature) AND Signature!="", "Yes", "No")
+| where is_signed="Yes"
+| eval cert_age_days=round((now() - strptime(CertificateIssueDate, "%Y-%m-%d"))/86400, 0)
+| where cert_age_days < 30 OR match(SignatureStatus, "Untrusted|Expired|Revoked")
+| lookup known_publishers_lookup SignerSubject OUTPUT is_known_publisher
+| where isnull(is_known_publisher) OR is_known_publisher!="true"
+| stats count by Computer, Image, SignerSubject, cert_age_days, SignatureStatus, Hashes
+| sort - count
+| table Computer, Image, SignerSubject, cert_age_days, SignatureStatus, Hashes, count
+
+`comment("--- Query 2: Signed binary exhibiting suspicious behavior ---")`
+
+index=endpoint sourcetype IN ("crowdstrike:events", "defender:events")
+  event_type="ProcessCreate" is_signed="true"
+| where match(CommandLine, "(?i)(powershell|cmd\.exe|wscript|cscript|mshta|rundll32)")
+  OR match(NetworkConnections, "(?i)pastebin|transfer\.sh|ngrok|raw\.githubusercontent")
+| eval behavior_flags=mvappend(
+    if(match(CommandLine, "(?i)powershell"), "spawns_powershell", null()),
+    if(match(CommandLine, "(?i)-enc|-e "), "encoded_command", null()),
+    if(isnotnull(NetworkConnections), "network_activity", null())
+  )
+| stats count, values(behavior_flags) as suspicious_behaviors
+  by Computer, Image, SignerSubject, ParentImage
+| sort - count
+
+`comment("--- Query 3: Certificate Transparency monitoring ---")`
+
+index=cert_transparency sourcetype="ct:logs"
+  certificate_type="code_signing"
+| where match(subject_cn, "(?i)YOUR_ORG_NAME|your-org|yourdomain")
+| lookup known_certificates serial_number OUTPUT is_known
+| where isnull(is_known)
+| table _time, subject_cn, issuer_cn, serial_number, not_before, not_after

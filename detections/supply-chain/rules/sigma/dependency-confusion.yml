@@ -1,0 +1,48 @@
+title: Dependency Confusion - Public Package Matching Internal Name
+id: e5f6a7b8-0018-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects installation of packages from public registries (npm, PyPI, NuGet)
+  that match internal/private package naming conventions, indicating a potential
+  dependency confusion or namespace hijacking attack.
+references:
+  - https://attack.mitre.org/techniques/T1195/001/
+  - https://medium.com/@alex.birsan/dependency-confusion-4a5d60fec610
+author: mikeytrr07
+tags:
+  - attack.initial_access
+  - attack.t1195.001
+  - attack.supply_chain
+logsource:
+  category: application
+  product: build_pipeline
+detection:
+  selection_install:
+    command|contains:
+      - 'npm install'
+      - 'pip install'
+      - 'gem install'
+      - 'dotnet restore'
+      - 'nuget install'
+  selection_public_registry:
+    registry_source|contains:
+      - 'registry.npmjs.org'
+      - 'pypi.org'
+      - 'rubygems.org'
+      - 'nuget.org'
+  # Note: Requires a lookup or enrichment step to flag packages
+  # matching internal naming patterns (e.g., @company-*, internal-*)
+  condition: selection_install and selection_public_registry
+  # Post-processing: Cross-reference package_name against internal
+  # package registry to detect namespace collisions.
+fields:
+  - pipeline_name
+  - build_id
+  - package_name
+  - package_version
+  - registry_source
+  - triggered_by
+falsepositives:
+  - Internal packages legitimately published to public registries
+  - Open-source packages with names coincidentally matching internal conventions
+level: high
