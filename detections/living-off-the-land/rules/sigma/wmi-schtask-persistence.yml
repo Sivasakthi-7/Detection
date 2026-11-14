@@ -1,0 +1,109 @@
+title: WMI/Scheduled Task Persistence - Suspicious Event Subscription or Task
+id: f6a7b8c9-0025-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects suspicious WMI event subscriptions (CommandLineEventConsumer,
+  ActiveScriptEventConsumer) and scheduled task creation with encoded commands,
+  script engine invocations, or execution from temporary directories,
+  indicating persistence via native OS facilities.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+  - https://attack.mitre.org/techniques/T1546/003/
+author: mikeytrr07
+tags:
+  - attack.persistence
+  - attack.t1053.005
+  - attack.t1546.003
+  - attack.execution
+logsource:
+  product: windows
+  service: sysmon
+detection:
+  selection_wmi_filter:
+    EventID: 19
+  selection_wmi_consumer:
+    EventID: 20
+    Destination|contains:
+      - 'CommandLineEventConsumer'
+      - 'ActiveScriptEventConsumer'
+  selection_wmi_binding:
+    EventID: 21
+  selection_suspicious_content:
+    Destination|contains:
+      - 'powershell'
+      - 'cmd.exe'
+      - 'wscript'
+      - 'cscript'
+      - 'mshta'
+      - 'http://'
+      - 'https://'
+      - 'base64'
+  condition: (selection_wmi_consumer or (selection_wmi_binding and selection_suspicious_content))
+fields:
+  - Computer
+  - User
+  - EventID
+  - Operation
+  - Consumer
+  - Filter
+  - Destination
+falsepositives:
+  - Configuration management tools using WMI for inventory
+  - SCCM/Intune deploying software via WMI
+  - Legitimate monitoring agents creating WMI subscriptions
+level: medium
+---
+title: Scheduled Task Creation with Suspicious Characteristics
+id: f6a7b8c9-0025-4a5b-8c6d-e7f8a9b0c1d3
+status: experimental
+description: >
+  Detects creation of scheduled tasks containing encoded PowerShell commands,
+  script engine invocations from temp directories, or tasks created by
+  non-administrative users.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+author: mikeytrr07
+tags:
+  - attack.persistence
+  - attack.t1053.005
+  - attack.execution
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4698
+  selection_encoded:
+    TaskContent|contains:
+      - '-EncodedCommand'
+      - '-enc '
+      - '-e '
+      - 'FromBase64String'
+  selection_temp_path:
+    TaskContent|contains:
+      - '\Temp\'
+      - '\tmp\'
+      - '%TEMP%'
+      - 'AppData\Local\Temp'
+  selection_script_engine:
+    TaskContent|contains:
+      - 'powershell'
+      - 'cmd.exe /c'
+      - 'wscript'
+      - 'cscript'
+      - 'mshta'
+  filter_known_tasks:
+    TaskName|contains:
+      - '\Microsoft\'
+      - '\Google\'
+      - '\Adobe\'
+  condition: selection and (selection_encoded or selection_temp_path) and not filter_known_tasks
+fields:
+  - Computer
+  - SubjectUserName
+  - TaskName
+  - TaskContent
+falsepositives:
+  - Software installations creating scheduled update tasks
+  - IT automation scripts using scheduled tasks
+level: medium

@@ -1,0 +1,46 @@
+`comment("Living-off-the-Land Binaries (LOLBins) Abuse")`
+`comment("Detects suspicious use of system utilities for download, execution, or encoding")`
+`comment("MITRE ATT&CK: T1218, T1059")`
+`comment("Severity: Medium | Data Source: Sysmon, Windows Security Event 4688")`
+
+`comment("--- Query 1: LOLBin used for file download or remote execution ---")`
+
+index=windows sourcetype IN ("XmlWinEventLog:Microsoft-Windows-Sysmon/Operational", "WinEventLog:Security")
+  (EventCode=1 OR EventCode=4688)
+| eval process_name=lower(coalesce(Image, NewProcessName))
+| eval cmdline=lower(coalesce(CommandLine, Process_Command_Line))
+| eval lolbin_category=case(
+    match(process_name, "certutil") AND match(cmdline, "-urlcache|-split|-decode|-encode"), "download/decode",
+    match(process_name, "mshta") AND match(cmdline, "http|javascript|vbscript"), "remote_execution",
+    match(process_name, "regsvr32") AND match(cmdline, "/s /n /u /i:http|scrobj"), "proxy_execution",
+    match(process_name, "rundll32") AND match(cmdline, "javascript|http|shell32|advpack"), "proxy_execution",
+    match(process_name, "msiexec") AND match(cmdline, "/q.*http|/q.*/i.*\\\\"), "remote_install",
+    match(process_name, "bitsadmin") AND match(cmdline, "/transfer|/create.*addfile"), "download",
+    match(process_name, "expand") AND match(cmdline, "-f:\*|-r"), "decompression",
+    match(process_name, "esentutl") AND match(cmdline, "/y.*http"), "download",
+    1=1, null()
+  )
+| where isnotnull(lolbin_category)
+| table _time, Computer, User, process_name, cmdline, lolbin_category, ParentImage, ParentCommandLine
+| sort - _time
+
+`comment("--- Query 2: LOLBin with anomalous parent process ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1
+| eval process_name=lower(Image)
+| where match(process_name, "certutil|mshta|regsvr32|rundll32|msiexec|bitsadmin|wmic|cmstp|esentutl")
+| eval parent_name=lower(ParentImage)
+| eval suspicious_parent=if(match(parent_name, "outlook|winword|excel|powerpnt|iexplore|chrome|firefox|edge"), "Yes", "No")
+| where suspicious_parent="Yes"
+| table _time, Computer, User, parent_name, process_name, CommandLine
+| sort - _time
+
+`comment("--- Query 3: System utility making outbound network connection ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=3
+| eval process_name=lower(Image)
+| where match(process_name, "certutil|mshta|regsvr32|rundll32|msiexec|bitsadmin|wmic|cmstp")
+| where NOT match(DestinationIp, "^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.|^127\.")
+| stats count, values(DestinationIp) as dest_ips, values(DestinationPort) as dest_ports
+  by Computer, process_name, User
+| sort - count

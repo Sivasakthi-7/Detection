@@ -1,0 +1,54 @@
+title: Reflective DLL Injection - CreateRemoteThread in Trusted Process
+id: f6a7b8c9-0023-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects reflective DLL injection by identifying CreateRemoteThread events
+  targeting trusted system processes (svchost, lsass, explorer) from unexpected
+  source processes, and unsigned DLL loads in system process memory.
+references:
+  - https://attack.mitre.org/techniques/T1055/001/
+  - https://attack.mitre.org/techniques/T1620/
+author: mikeytrr07
+tags:
+  - attack.defense_evasion
+  - attack.t1055.001
+  - attack.t1620
+  - attack.privilege_escalation
+logsource:
+  product: windows
+  category: create_remote_thread
+  service: sysmon
+detection:
+  selection_target:
+    TargetImage|endswith:
+      - '\svchost.exe'
+      - '\lsass.exe'
+      - '\explorer.exe'
+      - '\csrss.exe'
+      - '\winlogon.exe'
+      - '\spoolsv.exe'
+      - '\services.exe'
+  filter_system_sources:
+    SourceImage|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+    SourceImage|endswith:
+      - '\csrss.exe'
+      - '\lsass.exe'
+      - '\services.exe'
+      - '\svchost.exe'
+      - '\wininit.exe'
+  condition: selection_target and not filter_system_sources
+fields:
+  - Computer
+  - SourceImage
+  - TargetImage
+  - SourceProcessId
+  - TargetProcessId
+  - StartFunction
+  - User
+falsepositives:
+  - Security products injecting monitoring DLLs into processes
+  - Accessibility tools hooking into explorer.exe
+  - Some legitimate software using thread injection for compatibility
+level: high

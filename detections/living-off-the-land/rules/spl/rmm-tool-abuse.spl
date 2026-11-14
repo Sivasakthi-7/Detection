@@ -1,0 +1,55 @@
+`comment("RMM Tool Abuse for Hands-on-Keyboard Access")`
+`comment("Detects installation and use of unauthorized remote management tools")`
+`comment("MITRE ATT&CK: T1219, T1072")`
+`comment("Severity: High | Data Source: Endpoint Telemetry, Network Proxy")`
+
+`comment("--- Query 1: Unauthorized RMM tool installation ---")`
+
+index=windows sourcetype IN ("XmlWinEventLog:Microsoft-Windows-Sysmon/Operational", "WinEventLog:Security")
+  (EventCode=1 OR EventCode=4688)
+| eval process_name=lower(coalesce(Image, NewProcessName))
+| eval rmm_tool=case(
+    match(process_name, "anydesk"), "AnyDesk",
+    match(process_name, "teamviewer"), "TeamViewer",
+    match(process_name, "screenconnect|connectwisecontrol"), "ConnectWise ScreenConnect",
+    match(process_name, "atera"), "Atera",
+    match(process_name, "splashtop"), "Splashtop",
+    match(process_name, "rustdesk"), "RustDesk",
+    match(process_name, "meshagent|meshcentral"), "MeshCentral",
+    match(process_name, "supremo"), "Supremo",
+    match(process_name, "logmein|hamachi"), "LogMeIn",
+    match(process_name, "bomgar|beyondtrust"), "BeyondTrust",
+    1=1, null()
+  )
+| where isnotnull(rmm_tool)
+| lookup approved_rmm_lookup rmm_tool OUTPUT is_approved
+| where isnull(is_approved) OR is_approved!="true"
+| table _time, Computer, User, rmm_tool, process_name, CommandLine, ParentImage
+| sort - _time
+
+`comment("--- Query 2: Network connections to RMM vendor infrastructure ---")`
+
+index=proxy sourcetype IN ("bluecoat", "zscaler", "netskope")
+| eval rmm_vendor=case(
+    match(url, "anydesk\.com"), "AnyDesk",
+    match(url, "teamviewer\.com"), "TeamViewer",
+    match(url, "screenconnect\.com|connectwise\.com"), "ScreenConnect",
+    match(url, "atera\.com"), "Atera",
+    match(url, "splashtop\.com"), "Splashtop",
+    match(url, "rustdesk\.com"), "RustDesk",
+    match(url, "meshcentral"), "MeshCentral",
+    1=1, null()
+  )
+| where isnotnull(rmm_vendor)
+| lookup approved_rmm_lookup rmm_tool AS rmm_vendor OUTPUT is_approved
+| where isnull(is_approved) OR is_approved!="true"
+| stats count, sum(bytes_out) as bytes_sent, dc(cs_username) as unique_users
+  by rmm_vendor, src_ip
+| sort - count
+
+`comment("--- Query 3: RMM service installation event ---")`
+
+index=windows sourcetype="WinEventLog:System" EventCode=7045
+| eval service_name_lower=lower(ServiceName)
+| where match(service_name_lower, "anydesk|teamviewer|screenconnect|atera|splashtop|rustdesk|meshagent")
+| table _time, Computer, ServiceName, ImagePath, ServiceType, StartType, AccountName

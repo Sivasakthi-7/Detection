@@ -1,0 +1,59 @@
+`comment("WMI / Scheduled Task Persistence via Native OS Facilities")`
+`comment("Detects suspicious WMI event subscriptions and scheduled task creation")`
+`comment("MITRE ATT&CK: T1053.005, T1546.003")`
+`comment("Severity: Medium | Data Source: Sysmon, Windows Security Events")`
+
+`comment("--- Query 1: WMI event subscription creation ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" 
+  EventCode IN (19, 20, 21)
+| eval wmi_type=case(
+    EventCode=19, "WmiEventFilter",
+    EventCode=20, "WmiEventConsumer",
+    EventCode=21, "WmiEventConsumerToFilter"
+  )
+| eval suspicious_consumer=if(match(Consumer, "(?i)(CommandLineEventConsumer|ActiveScriptEventConsumer)"), "Yes", "No")
+| eval has_script=if(match(Destination, "(?i)(powershell|cmd|wscript|cscript|mshta|http|base64)"), "Yes", "No")
+| where suspicious_consumer="Yes" OR has_script="Yes"
+| table _time, Computer, User, wmi_type, EventCode, Operation, Consumer, Filter, Destination
+| sort - _time
+
+`comment("--- Query 2: Scheduled task creation with suspicious characteristics ---")`
+
+index=windows sourcetype="WinEventLog:Security" EventCode=4698
+| spath output=task_name "TaskName"
+| spath output=task_content "TaskContent"
+| eval has_encoded_cmd=if(match(task_content, "(?i)(-enc|-e |encodedcommand|frombase64)"), "Yes", "No")
+| eval has_suspicious_action=if(match(task_content, "(?i)(powershell|cmd\.exe|wscript|cscript|mshta|rundll32|regsvr32)"), "Yes", "No")
+| eval runs_from_temp=if(match(task_content, "(?i)(\\\\temp\\\\|\\\\tmp\\\\|%temp%|appdata\\\\local\\\\temp)"), "Yes", "No")
+| where has_encoded_cmd="Yes" OR runs_from_temp="Yes" OR 
+        (has_suspicious_action="Yes" AND NOT match(task_name, "(?i)microsoft|windows|google|adobe"))
+| table _time, Computer, SubjectUserName, task_name, has_encoded_cmd, has_suspicious_action, runs_from_temp, task_content
+| sort - _time
+
+`comment("--- Query 3: schtasks.exe or wmiprvse.exe spawning script engines ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=1
+| eval parent=lower(ParentImage)
+| eval child=lower(Image)
+| where match(parent, "wmiprvse\.exe|schtasks\.exe|taskeng\.exe|taskhostw\.exe")
+  AND match(child, "powershell|cmd\.exe|wscript|cscript|mshta|python|perl")
+| table _time, Computer, User, ParentImage, Image, CommandLine
+| sort - _time
+
+`comment("--- Query 4: Linux systemd timer/service persistence ---")`
+
+index=linux sourcetype="syslog" OR sourcetype="linux:audit"
+| where (match(_raw, "systemctl.*(enable|start).*(timer|service)") 
+  OR match(_raw, "crontab") 
+  OR match(_raw, "/etc/cron"))
+  AND NOT match(user, "root|apt|dpkg|yum")
+| eval persistence_type=case(
+    match(_raw, "systemctl.*timer"), "systemd_timer",
+    match(_raw, "systemctl.*service"), "systemd_service",
+    match(_raw, "crontab"), "crontab",
+    match(_raw, "/etc/cron"), "cron_directory",
+    1=1, "other"
+  )
+| table _time, host, user, persistence_type, _raw
+| sort - _time

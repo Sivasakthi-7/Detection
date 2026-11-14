@@ -1,0 +1,34 @@
+`comment("Reflective DLL Injection via Trusted Processes")`
+`comment("Detects in-memory DLL injection patterns in trusted system processes")`
+`comment("MITRE ATT&CK: T1055.001, T1620")`
+`comment("Severity: High | Data Source: Sysmon, EDR Memory Telemetry")`
+
+`comment("--- Query 1: Suspicious memory allocation in trusted processes ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=8
+| eval target_process=lower(TargetImage)
+| where match(target_process, "explorer\.exe|svchost\.exe|lsass\.exe|services\.exe|spoolsv\.exe|winlogon\.exe")
+| eval source_process=lower(SourceImage)
+| where NOT match(source_process, "(?i)csrss\.exe|lsass\.exe|services\.exe|wininit\.exe|smss\.exe|system$")
+| table _time, Computer, SourceImage, TargetImage, SourceProcessId, TargetProcessId, StartFunction
+| sort - _time
+
+`comment("--- Query 2: Unsigned DLL loaded by trusted process ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=7
+| eval process_name=lower(Image)
+| where match(process_name, "explorer\.exe|svchost\.exe|rundll32\.exe|services\.exe")
+| where SignatureStatus!="Valid" OR Signed="false"
+| where NOT match(ImageLoaded, "(?i)\\\\windows\\\\|\\\\program files")
+| table _time, Computer, Image, ImageLoaded, Hashes, SignatureStatus, Signed
+| sort - _time
+
+`comment("--- Query 3: CreateRemoteThread into system processes ---")`
+
+index=windows sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventCode=8
+| eval target=lower(TargetImage)
+| eval source=lower(SourceImage)
+| where match(target, "svchost|lsass|explorer|csrss|winlogon|spoolsv")
+| where NOT match(source, "\\\\windows\\\\system32\\\\|\\\\syswow64\\\\|csrss|lsass|services")
+| stats count by Computer, SourceImage, TargetImage, User
+| sort - count

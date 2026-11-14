@@ -1,0 +1,66 @@
+title: LOLBin Abuse - System Binary Used for Download or Proxy Execution
+id: f6a7b8c9-0022-4a5b-8c6d-e7f8a9b0c1d2
+status: experimental
+description: >
+  Detects abuse of living-off-the-land binaries (LOLBins) such as certutil,
+  mshta, regsvr32, rundll32, msiexec, and bitsadmin for downloading payloads,
+  proxy execution, or encoding/decoding data.
+references:
+  - https://attack.mitre.org/techniques/T1218/
+  - https://attack.mitre.org/techniques/T1059/
+  - https://lolbas-project.github.io/
+author: mikeytrr07
+tags:
+  - attack.defense_evasion
+  - attack.t1218
+  - attack.execution
+  - attack.t1059
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_certutil:
+    Image|endswith: '\certutil.exe'
+    CommandLine|contains:
+      - '-urlcache'
+      - '-split'
+      - '-decode'
+      - '-encode'
+      - 'http'
+  selection_mshta:
+    Image|endswith: '\mshta.exe'
+    CommandLine|contains:
+      - 'http'
+      - 'javascript'
+      - 'vbscript'
+  selection_regsvr32:
+    Image|endswith: '\regsvr32.exe'
+    CommandLine|contains:
+      - '/s /n /u /i:http'
+      - 'scrobj.dll'
+  selection_rundll32:
+    Image|endswith: '\rundll32.exe'
+    CommandLine|contains:
+      - 'javascript'
+      - 'http'
+      - 'shell32.dll,ShellExec_RunDLL'
+  selection_bitsadmin:
+    Image|endswith: '\bitsadmin.exe'
+    CommandLine|contains:
+      - '/transfer'
+      - '/create'
+      - 'addfile'
+  condition: 1 of selection_*
+fields:
+  - Computer
+  - User
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+  - Hashes
+falsepositives:
+  - IT administrators using certutil for certificate management
+  - Legitimate software using BITS for downloads
+  - Software installations using msiexec with remote paths
+level: medium
